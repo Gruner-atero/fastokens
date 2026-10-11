@@ -566,11 +566,12 @@ dependencies = [
 
 [[package]]
 name = "fastokens"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "aho-corasick",
  "daachorse 1.0.1",
  "fancy-regex",
+ "fastrand",
  "hf-hub",
  "icu_normalizer",
  "libc",
@@ -582,6 +583,7 @@ dependencies = [
  "serde_json",
  "strum",
  "thiserror",
+ "unicode-normalization-alignments",
  "ureq",
 ]
 
