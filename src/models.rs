@@ -139,10 +139,19 @@ impl Model {
         }
     }
 
-    /// Access the bigram bridge table for vocab-aware splitting.
+    /// Whether the fused ByteLevel paths can encode for this model (they don't
+    /// support word affixes or dropout).
+    pub fn supports_fused_byte_level(&self) -> bool {
+        match self {
+            Self::Bpe(bpe) => bpe.supports_fused_byte_level(),
+        }
+    }
+
+    /// Access the bigram bridge table for vocab-aware splitting, or `None` when
+    /// splitting at unbridgeable byte pairs would change the output.
     pub fn bigram_bridge_table(&self) -> Option<&bpe::BigramBridgeTable> {
         match self {
-            Self::Bpe(bpe) => Some(&bpe.bigram_bridge_table),
+            Self::Bpe(bpe) => bpe.splittable_bigram_bridge_table(),
         }
     }
 }
