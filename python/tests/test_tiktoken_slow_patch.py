@@ -168,3 +168,55 @@ def test_patch_wraps_and_restores_slow_from_pretrained():
     finally:
         fastokens.unpatch_transformers()
     assert "from_pretrained" not in slow_cls.__dict__
+
+
+def test_split_is_linear_in_runs_under_the_limit():
+    # Unanchored, the long-run regex retried at every character of a shorter run:
+    # ~5 s here. Kimi's own per-character loop takes ~12 ms.
+    import time
+
+    text = ("y" * (MAX_NO_WHITESPACES_CHARS - 1) + " ") * (TIKTOKEN_MAX_ENCODE_CHARS // MAX_NO_WHITESPACES_CHARS)
+    started = time.perf_counter()
+    pieces = list(split_like_tiktoken_text_piece(text))
+    elapsed = time.perf_counter() - started
+    assert pieces == list(_reference_pieces(text))
+    assert elapsed < 0.5, f"splitting took {elapsed:.2f} s"
+
+
+class _PicklableKimiStyleTokenizer:
+    """Module-level so instances pickle; same interface as ``_kimi_style_tokenizer``."""
+
+    pat_str = r"\S+|\s+"
+
+    def __init__(self, tiktoken, path, ranks):
+        self.model = tiktoken.Encoding("tiny", pat_str=self.pat_str, mergeable_ranks=ranks, special_tokens=SPECIALS)
+        self.vocab_file = path
+
+    def _encode_text_piece(self, text, allow_special_tokens=True):
+        ids = []
+        for substr in _reference_pieces(text):
+            if allow_special_tokens:
+                ids.extend(self.model.encode(substr, allowed_special="all"))
+            else:
+                ids.extend(self.model.encode(substr, disallowed_special=()))
+        return ids
+
+
+@pytest.mark.parametrize("copy_fn", ["pickle", "deepcopy"])
+def test_accelerated_tokenizer_survives_pickle_and_deepcopy(tmp_path, copy_fn):
+    import copy
+    import pickle
+
+    tiktoken = pytest.importorskip("tiktoken")
+    path, ranks = _byte_level_model(tmp_path)
+    ref = _PicklableKimiStyleTokenizer(tiktoken, path, ranks)
+    fast = _PicklableKimiStyleTokenizer(tiktoken, path, ranks)
+    assert accelerate_tiktoken_tokenizer(fast)
+
+    clone = pickle.loads(pickle.dumps(fast)) if copy_fn == "pickle" else copy.deepcopy(fast)
+
+    text = TEXTS[3]
+    assert clone._fastokens_tiktoken is not None
+    assert clone._encode_text_piece.__self__ is clone._fastokens_tiktoken
+    assert clone._encode_text_piece(text) == ref._encode_text_piece(text)
+    assert fast._encode_text_piece(text) == ref._encode_text_piece(text)
